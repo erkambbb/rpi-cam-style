@@ -141,3 +141,12 @@ tests/
 docs/
   index.html  project page
 ```
+
+## Preview one image (input vs output)
+
+```bash
+python -m camstyle.preview path/to/sim_frame.png out/compare.jpg --source-hfov 60 \
+    --reference real_camera_samples/ --match-strength 0.3 --ignore-top 45
+```
+
+Left: input, right: output. Generated files go into `out/` inside this repository (ignored by git).
