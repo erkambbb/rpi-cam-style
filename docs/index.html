@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>rpi-cam-style</title>
+<style>
+  :root { --bg:#f7f6f2; --fg:#1d1d1b; --muted:#6b6a64; --accent:#b4441e; --card:#ffffff; --line:#e3e0d8; --code:#f0ede6; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) { --bg:#171715; --fg:#ecebe6; --muted:#9c9b94; --accent:#e27a52; --card:#21211e; --line:#33322e; --code:#26251f; }
+  }
+  :root[data-theme="dark"] { --bg:#171715; --fg:#ecebe6; --muted:#9c9b94; --accent:#e27a52; --card:#21211e; --line:#33322e; --code:#26251f; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 880px; margin: 0 auto; padding: 48px 16px 80px; }
+  h1 { font-size: 2.4rem; margin: 0 0 8px; letter-spacing: -0.02em; }
+  h2 { font-size: 1.4rem; margin: 48px 0 12px; border-top: 1px solid var(--line); padding-top: 24px; }
+  p.lead { font-size: 1.15rem; color: var(--muted); margin-top: 0; }
+  a { color: var(--accent); }
+  code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 14px; }
+  code { background: var(--code); padding: 1px 5px; border-radius: 4px; }
+  pre { background: var(--code); padding: 14px 16px; border-radius: 8px; overflow-x: auto; border: 1px solid var(--line); }
+  pre code { background: none; padding: 0; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; background: var(--card); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; display: block; overflow-x: auto; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin: 24px 0; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+  .card b { display: block; margin-bottom: 4px; }
+  .card span { color: var(--muted); font-size: 14px; }
+  .note { border-left: 3px solid var(--accent); padding: 4px 14px; color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <h1>rpi-cam-style</h1>
+  <p class="lead">Make simulator frames look like they were captured by a real camera. Default profile: Raspberry Pi High Quality Camera (Sony IMX477) with a 12&nbsp;mm lens.</p>
+
+  <div class="cards">
+    <div class="card"><b>Field of view</b><span>Crops and zooms to the lens FOV: 29.4° horizontal, 16.8° vertical in 16:9.</span></div>
+    <div class="card"><b>Color and tone</b><span>Saturation, contrast, white balance, histogram match to your real frames.</span></div>
+    <div class="card"><b>Optics and sensor</b><span>Haze, vignetting, softness, chromatic aberration, shot and read noise.</span></div>
+    <div class="card"><b>Labels follow</b><span>YOLO boxes are transformed with the same geometry. Out-of-frame boxes are dropped.</span></div>
+  </div>
+
+  <h2>Install</h2>
+  <pre><code>pip install numpy opencv-python
+git clone https://github.com/erkambbb/rpi-cam-style
+cd rpi-cam-style</code></pre>
+
+  <h2>Quick start</h2>
+  <p>Stylize a YOLO dataset (<code>images/</code> and <code>labels/</code> folders):</p>
+<pre><code>python -m camstyle datasets/my_sim_set datasets/my_sim_set_cam \
+    --source-hfov 60 \
+    --reference real_camera_samples/ --match-strength 0.3 --ignore-top 45</code></pre>
+  <p>Or a plain folder of images: <code>python -m camstyle input/ output/ --source-hfov 60</code>.</p>
+  <p class="note">The simulator must render wider than the camera. The 12&nbsp;mm lens needs about 29.4°. Use 50–60° in the simulator and pass that value as <code>--source-hfov</code>.</p>
+
+  <h2>Camera parameters</h2>
+  <table>
+    <tr><th>Option</th><th>Default</th><th>Meaning</th></tr>
+    <tr><td><code>--focal-mm</code></td><td>12</td><td>Lens focal length</td></tr>
+    <tr><td><code>--sensor-mm</code></td><td>6.287,4.712</td><td>Sensor width,height (IMX477)</td></tr>
+    <tr><td><code>--k1</code>, <code>--k2</code></td><td>-0.02, 0</td><td>Radial distortion (barrel &lt; 0)</td></tr>
+    <tr><td><code>--source-hfov</code></td><td>60</td><td>Simulator horizontal FOV (deg)</td></tr>
+    <tr><td><code>--out-size</code></td><td>1280x720</td><td>Output size</td></tr>
+    <tr><td><code>--ev</code>, <code>--wb</code></td><td>0, 1.03,1.0,0.95</td><td>Exposure and RGB white balance</td></tr>
+    <tr><td><code>--saturation</code>, <code>--contrast</code>, <code>--black-level</code></td><td>0.90, 0.95, 0.02</td><td>Tone</td></tr>
+    <tr><td><code>--haze</code>, <code>--haze-color</code>, <code>--vignette</code></td><td>0.06, auto, 0.18</td><td>Atmosphere</td></tr>
+    <tr><td><code>--blur</code>, <code>--chroma-aberration</code></td><td>0.6, 0.0008</td><td>Optics</td></tr>
+    <tr><td><code>--photon-scale</code>, <code>--read-noise</code></td><td>1500, 0.006</td><td>Sensor noise</td></tr>
+    <tr><td><code>--reference</code>, <code>--match-strength</code></td><td>none, 0</td><td>Match to real frames (0..1)</td></tr>
+    <tr><td><code>--jpeg-quality</code>, <code>--seed</code></td><td>90, 0</td><td>Output encoding and noise seed</td></tr>
+  </table>
+
+  <h2>Tuning</h2>
+  <p>Take 5–10 real frames with the camera (sky, ground, horizon) and pass them as <code>--reference</code>. Compare output and real frames side by side. Then adjust, in this order: <code>--match-strength</code>, <code>--haze</code>, <code>--ev</code>, <code>--wb</code>, <code>--photon-scale</code>. Do not tune on one image.</p>
+
+  <h2>Limits</h2>
+  <p>This is an approximation. It does not model the sensor's color matrix, demosaicing or the camera ISP. Validate the output against your own frames before training on it.</p>
+
+  <p style="margin-top:48px;color:var(--muted);font-size:14px">Source and full documentation: <a href="https://github.com/erkambbb/rpi-cam-style">github.com/erkambbb/rpi-cam-style</a></p>
+</main>
+</body>
+</html>

@@ -1,0 +1,14 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rpi-cam-style"
+version = "0.1.0"
+description = "Make simulator frames look like frames from a real camera (default: Raspberry Pi HQ camera, 12 mm lens)"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = ["numpy", "opencv-python"]
+
+[tool.setuptools]
+packages = ["camstyle"]
