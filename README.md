@@ -15,10 +15,11 @@ It is meant for **domain adaptation**: simulator images (for example X-Plane scr
 | Exposure, white balance | EV offset, RGB gains | `--ev`, `--wb` |
 | Tone and color | Saturation, contrast, black level | `--saturation`, `--contrast`, `--black-level` |
 | Reference matching | Histogram match to real frames from your camera | `--reference`, `--match-strength`, `--ignore-top` |
-| Atmosphere | Haze toward the horizon, vignetting | `--haze`, `--haze-color`, `--vignette` |
+| Atmosphere | Haze toward the top of the frame or over the whole frame, vignetting | `--haze`, `--haze-uniform`, `--haze-color`, `--vignette` |
 | Optics | Softness, lateral chromatic aberration | `--blur`, `--chroma-aberration` |
 | Sensor | Shot noise (Poisson) and read noise | `--photon-scale`, `--read-noise` |
 | Output | 8-bit quantization, JPEG compression | `--jpeg-quality` |
+| Variation | Random per-frame exposure, white balance, haze, softness, JPEG quality | `--jitter` |
 
 ## Install
 
@@ -93,6 +94,23 @@ All of these are command-line options. The defaults match the Raspberry Pi HQ ca
 4. Tune noise last: check the dark areas of a real frame and match `--photon-scale`.
 
 Do not tune on one image. Check several frames.
+
+### Recipe tuned on real Raspberry Pi HQ + 12 mm frames (hazy field footage)
+
+Reference frames: hazy, warm, low contrast, soft video frames. This recipe gives output close to them
+for X-Plane frames rendered at `--source-hfov 34`:
+
+```bash
+python -m camstyle SRC DST --focal-mm 12 --source-hfov 34 --out-size 1280x720 \
+    --reference real_camera_samples/ --ignore-top 45 --match-strength 0.5 \
+    --wb 1.05,1.0,0.93 --haze 0 --haze-uniform 0.07 --saturation 1.0 --contrast 0.95 \
+    --blur 0.4 --photon-scale 1500 --read-noise 0.006 --jpeg-quality 70 --jitter 0.5
+```
+
+Notes:
+- The simulator horizon is not at the top of the frame, so use `--haze-uniform` (whole frame) instead of `--haze`.
+- `--match-strength` uses a smooth tone curve with a limited slope. It no longer makes stripes in clear sky.
+- `--jitter 0.5` gives each frame a slightly different exposure, color, haze, softness and JPEG quality, so a detector does not overfit one look. Same `--seed` gives the same result.
 
 ## Using the Python API
 

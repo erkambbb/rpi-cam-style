@@ -107,3 +107,32 @@ def test_encode_jpeg(tmp_path):
     path = str(tmp_path / "x.jpg")
     cs.encode(out, path)
     assert os.path.getsize(path) > 0
+
+
+def test_tone_match_does_not_create_bands():
+    # narrow sky-like gradient must not be stretched into steps
+    from camstyle.core import _histogram_match
+    h, w = 200, 300
+    img = np.linspace(0.55, 0.62, h, dtype=np.float32)[:, None, None] * np.ones((1, w, 3), np.float32)
+    ref = np.tile(np.linspace(0.1, 0.9, 256, dtype=np.float32), (3, 1))
+    out = _histogram_match(img, ref, 1.0)
+    step = np.abs(np.diff(out[:, 0, 1]))
+    assert step.max() < 0.01          # smooth, no jumps
+    assert np.all(np.diff(out[:, 0, 1]) >= -1e-6)  # monotone
+
+
+def test_jitter_varies_frames_but_is_reproducible():
+    f = _frame(720, 1280)
+    mk = lambda: CamStyle(CamStyleParams(source_hfov_deg=60, out_width=640, out_height=360, jitter=1.0, seed=5))
+    a, b = mk(), mk()
+    a1, a2 = a.stylize(f), a.stylize(f)
+    b1 = b.stylize(f)
+    assert not np.array_equal(a1, a2)      # frames differ
+    assert np.array_equal(a1, b1)          # same seed, same sequence
+
+
+def test_uniform_haze_lowers_contrast():
+    f = _frame(720, 1280)
+    base = CamStyle(CamStyleParams(source_hfov_deg=60, photon_scale=0, read_noise=0, haze=0)).stylize(f)
+    hazy = CamStyle(CamStyleParams(source_hfov_deg=60, photon_scale=0, read_noise=0, haze=0, haze_uniform=0.2)).stylize(f)
+    assert hazy.std() < base.std()

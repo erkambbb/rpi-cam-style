@@ -84,6 +84,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     g = ap.add_argument_group("atmosphere")
     g.add_argument("--haze", type=float, default=d.haze, help="haze at the top of the frame (0..0.4)")
+    g.add_argument("--haze-uniform", type=float, default=d.haze_uniform,
+                   help="haze veil over the whole frame (0..0.4); use when the horizon is not at the top")
     g.add_argument("--haze-color", type=str, default=None,
                    help="haze RGB 0..1, e.g. 0.8,0.77,0.72 (default: from --reference, else warm grey)")
     g.add_argument("--vignette", type=float, default=d.vignette)
@@ -105,6 +107,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     g = ap.add_argument_group("output")
     g.add_argument("--jpeg-quality", type=int, default=d.jpeg_quality)
+    g.add_argument("--jitter", type=float, default=d.jitter,
+                   help="per-frame random variation of exposure, white balance, haze, softness and "
+                        "JPEG quality (0 = off, 1 = strong); makes the training set more varied")
     g.add_argument("--seed", type=int, default=d.seed, help="random seed for noise (reproducible)")
     g.add_argument("--min-visible", type=float, default=0.3,
                    help="drop labels with less than this fraction visible after the crop")
@@ -125,11 +130,11 @@ def params_from_args(a: argparse.Namespace) -> CamStyleParams:
         k1=a.k1, k2=a.k2, source_hfov_deg=a.source_hfov,
         out_width=ow, out_height=oh, ev=a.ev, white_balance=wb,
         saturation=a.saturation, contrast=a.contrast, black_level=a.black_level,
-        haze=a.haze, haze_color=haze, vignette=a.vignette,
+        haze=a.haze, haze_color=haze, haze_uniform=a.haze_uniform, vignette=a.vignette,
         blur_sigma=a.blur, chroma_aberration=a.chroma_aberration,
         photon_scale=a.photon_scale, read_noise=a.read_noise,
         match_strength=a.match_strength, ignore_top_px=a.ignore_top,
-        jpeg_quality=a.jpeg_quality, seed=a.seed)
+        jpeg_quality=a.jpeg_quality, jitter=a.jitter, seed=a.seed)
 
 
 def run(argv: Optional[List[str]] = None) -> int:

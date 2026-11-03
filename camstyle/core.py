@@ -51,6 +51,7 @@ class CamStyleParams:
     # --- atmosphere ------------------------------------------------------
     haze: float = 0.06                  # max haze amount at the top of the frame
     haze_color: Optional[Tuple[float, float, float]] = None  # None = from references, else warm grey
+    haze_uniform: float = 0.0           # veil over the whole frame (low contrast, hazy air)
     vignette: float = 0.18              # corner darkening (0..0.5 typical)
     # --- optics ----------------------------------------------------------
     blur_sigma: float = 0.6             # softness in output pixels (0 = off)
@@ -63,6 +64,7 @@ class CamStyleParams:
     ignore_top_px: int = 50             # overlay band to ignore in references
     # --- output ----------------------------------------------------------
     jpeg_quality: int = 90
+    jitter: float = 0.0                 # 0 = every frame identical; 1 = strong per-frame variation
     seed: Optional[int] = 0
 
     def to_dict(self) -> dict:
@@ -145,18 +147,44 @@ class Geometry:
 # Color helpers
 # ---------------------------------------------------------------------------
 
-def _histogram_match(img: np.ndarray, ref_channels: np.ndarray, strength: float) -> np.ndarray:
-    """Per-channel quantile mapping of img (float 0..1, HxWx3 RGB) onto reference quantiles.
+def _histogram_match(img: np.ndarray, ref_channels: np.ndarray, strength: float,
+                     min_slope: float = 0.6, max_slope: float = 1.6) -> np.ndarray:
+    """Smooth per-channel tone curve that moves img toward the reference quantiles.
 
-    ref_channels: (3, Q) array of reference quantile values per RGB channel.
+    A plain quantile mapping stretches narrow gradients (clear sky, haze) into
+    visible bands. Here the curve is built on 64 knots and its slope is limited
+    to [min_slope, max_slope], so colors move toward the reference without
+    creating plateaus or stripes.
+
+    img: float 0..1, HxWx3 RGB. ref_channels: (3, Q) reference quantiles per RGB channel.
     """
+    knots = 64
     q = np.linspace(0, 1, ref_channels.shape[1])
+    qk = np.linspace(0, 1, knots)
     out = np.empty_like(img)
     for c in range(3):
-        src_q = np.quantile(img[..., c], q)
-        # make source quantiles strictly increasing so np.interp is well defined
-        src_q = src_q + np.arange(len(src_q)) * 1e-9
-        mapped = np.interp(img[..., c], src_q, ref_channels[c])
+        flat = img[..., c].ravel()
+        step = max(1, flat.size // 200_000)
+        src_k = np.quantile(flat[::step], qk)
+        ref_k = np.interp(qk, q, ref_channels[c])
+        # target curve through the knots; enforce a bounded slope between knots
+        dx = np.diff(src_k)
+        dy = np.diff(ref_k)
+        slope = np.where(dx > 1e-6, dy / np.maximum(dx, 1e-6), 1.0)
+        slope = np.clip(slope, min_slope, max_slope)
+        # smooth slopes so the curve has no kinks
+        k = np.ones(5) / 5
+        slope = np.convolve(np.pad(slope, 2, mode="edge"), k, mode="valid")
+        y = np.concatenate([[0.0], np.cumsum(slope * dx)])
+        # anchor the curve so the median maps to the reference median
+        mid = knots // 2
+        y += ref_k[mid] - y[mid]
+        # beyond the knots keep slope 1
+        mapped = np.interp(img[..., c], src_k, y)
+        lo = img[..., c] < src_k[0]
+        hi = img[..., c] > src_k[-1]
+        mapped = np.where(lo, y[0] + (img[..., c] - src_k[0]), mapped)
+        mapped = np.where(hi, y[-1] + (img[..., c] - src_k[-1]), mapped)
         out[..., c] = mapped
     return (1 - strength) * img + strength * out
 
@@ -231,7 +259,7 @@ class CamStyle:
             rnorm = np.sqrt(xn * xn + yn * yn) / math.sqrt(2)
             vign = 1.0 - self.p.vignette * (rnorm ** 2)
             top = 1.0 - (yy / max(1, H - 1))          # 1 at top, 0 at bottom
-            haze = self.p.haze * (top ** 1.5)
+            haze = self.p.haze_uniform + self.p.haze * (top ** 1.5)
             self._cache = dict(geom=g, mx=mx, my=my, vign=vign.astype(np.float32),
                                haze=haze.astype(np.float32))
             self._cache_key = key
@@ -244,6 +272,16 @@ class CamStyle:
             raise ValueError("expected HxWx3 BGR image")
         p = self.p
         c = self._maps_for(bgr.shape[0], bgr.shape[1])
+        j = max(0.0, p.jitter)
+        if j > 0:
+            r = self._rng
+            ev = p.ev + r.normal(0, 0.25 * j)
+            wb = np.asarray(p.white_balance, dtype=np.float32) * (1 + r.normal(0, 0.025 * j, 3)).astype(np.float32)
+            veil = float(np.clip(1 + r.normal(0, 0.35 * j), 0.3, 1.8))
+            blur = max(0.0, p.blur_sigma * float(np.clip(1 + r.normal(0, 0.3 * j), 0.4, 1.8)))
+            self._jpeg_q = int(np.clip(p.jpeg_quality + r.normal(0, 8 * j), 30, 95))
+        else:
+            ev, wb, veil, blur, self._jpeg_q = p.ev, np.asarray(p.white_balance, dtype=np.float32), 1.0, p.blur_sigma, p.jpeg_quality
 
         # 1. geometry: crop/zoom to the camera FOV + lens distortion
         img = cv2.remap(bgr, c["mx"], c["my"], interpolation=cv2.INTER_LINEAR,
@@ -251,8 +289,8 @@ class CamStyle:
         rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
 
         # 2. exposure + white balance
-        rgb *= 2.0 ** p.ev
-        rgb *= np.asarray(p.white_balance, dtype=np.float32)
+        rgb *= 2.0 ** ev
+        rgb *= wb
 
         # 3. saturation, contrast, black level
         lum = (0.2126 * rgb[..., 0] + 0.7152 * rgb[..., 1] + 0.0722 * rgb[..., 2])[..., None]
@@ -266,15 +304,16 @@ class CamStyle:
 
         # 5. haze (toward horizon) and vignette
         haze_col = np.asarray(p.haze_color, dtype=np.float32)  # set in __init__
-        rgb = rgb * (1 - c["haze"][..., None]) + haze_col * c["haze"][..., None]
+        hz = np.clip(c["haze"] * veil, 0, 0.9)[..., None]
+        rgb = rgb * (1 - hz) + haze_col * hz
         rgb *= c["vign"][..., None]
 
         # 6. optics: chromatic aberration, softness
         rgb = np.clip(rgb, 0, 1)
         if abs(p.chroma_aberration) > 0:
             rgb = self._chroma(rgb, p.chroma_aberration)
-        if p.blur_sigma > 0:
-            rgb = cv2.GaussianBlur(rgb, (0, 0), p.blur_sigma)
+        if blur > 0:
+            rgb = cv2.GaussianBlur(rgb, (0, 0), blur)
 
         # 7. sensor noise
         rgb = np.clip(rgb, 0, 1)
@@ -301,7 +340,7 @@ class CamStyle:
     def encode(self, bgr: np.ndarray, path: str) -> None:
         """Write the frame; .jpg uses p.jpeg_quality, other extensions use lossless writers."""
         if path.lower().endswith((".jpg", ".jpeg")):
-            ok = cv2.imwrite(path, bgr, [cv2.IMWRITE_JPEG_QUALITY, int(self.p.jpeg_quality)])
+            ok = cv2.imwrite(path, bgr, [cv2.IMWRITE_JPEG_QUALITY, int(getattr(self, '_jpeg_q', self.p.jpeg_quality))])
         else:
             ok = cv2.imwrite(path, bgr)
         if not ok:
